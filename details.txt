@@ -1,0 +1,5 @@
+components:
+1. login page (create account and forgot password functionality)
+2. admin dashboard (where the can view the assigned tasks, create tasks for user, and few more things)
+3. user dashboard (where they can view their respective tasks - completed, pending, ongoing and a contact/message page where they can contact admin)
+4. 

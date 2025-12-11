@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard</title>
+    <link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+
+<div class="container">
+
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <h2>Dashboard</h2>
+        <ul>
+            <li class="active" onclick="showSection('todo')">To-Do List</li>
+            <li onclick="showSection('assignedTasks')">Assigned Tasks</li>
+            <li onclick="showSection('profile')">Profile</li>
+            <li onclick="logout()">Logout</li>
+        </ul>
+    </div>
+
+    <!-- Main Content -->
+    <div class="content">
+
+        <!-- To-Do Section -->
+        <!-- <section id="todo" class="section">
+            <h2>Your Tasks</h2>
+
+            <div class="task-input">
+                <input type="text" id="taskInput" placeholder="Enter a new task...">
+                <button onclick="addTask()">Add</button>
+            </div>
+
+            <ul id="taskList"></ul>
+        </section> -->
+        <section id="todo" class="section">
+            <h2>Your Tasks</h2>
+            <form id="addTaskForm">
+                <div class="task-input">
+                    <input type="text" id="taskInput" name="task" placeholder="Enter a new task..." required>
+                    <button type="submit">Add</button>
+                </div>
+            </form>
+            <ul id="taskList">
+                <li>Loading personal tasks...</li>
+            </ul>
+        </section>
+        
+        <section id="assignedTasks" class="section hidden">
+            <h2>Assigned Tasks</h2>
+            <ul id="assignedTaskList">
+                <li>Loading assigned tasks...</li>
+            </ul>
+        </section>
+
+        <!-- Profile Section -->
+        <section id="profile" class="section hidden">
+            <h2>Profile</h2>
+
+            <div class="profile-box">
+                <p><strong>Email:</strong> <span id="userEmail">Loading...</span></p>
+
+                <h3>Change Password</h3>
+
+                <input type="password" id="oldPassword" placeholder="Old Password">
+                <input type="password" id="newPassword" placeholder="New Password">
+                <button onclick="changePassword()">Update Password</button>
+            </div>
+        </section>
+
+    </div>
+</div>
+<script src="../config.js"></script>
+<script src="dashboard.js"></script>
+
+</body>
+</html>

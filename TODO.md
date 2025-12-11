@@ -1,0 +1,1 @@
+- [ ] Create public/login/forgot-password.js with JavaScript code to handle forgot password form submission.
