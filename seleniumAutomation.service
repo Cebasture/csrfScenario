@@ -1,0 +1,23 @@
+[Unit]
+Description=Start MailHog and Selenium Automation
+
+# Start ONLY after these are fully started
+After=network-online.target docker.service jsServer.service apache2.service
+Requires=jsServer.service apache2.service
+Wants=network-online.target docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/admin
+
+# Optional but recommended: wait until Apache is really listening
+ExecStartPre=/bin/bash -c 'until curl -sf http://127.0.0.1/ > /dev/null; do sleep 2; done'
+
+ExecStart=/home/admin/automation.sh
+KillMode=control-group
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+

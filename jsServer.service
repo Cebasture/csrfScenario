@@ -1,0 +1,27 @@
+[Unit]
+Description=Node.js Backend Server
+After=network-online.target systemd-networkd.service
+Wants=network-online.target
+PartOf=systemd-networkd.service
+
+[Service]
+Type=simple
+User=admin
+WorkingDirectory=/home/admin/csrfScenario/backend
+
+# IMPORTANT: no nodemon
+ExecStart=/usr/bin/npm start
+
+# Ensure clean shutdown
+ExecStop=/bin/kill -SIGTERM $MAINPID
+KillSignal=SIGTERM
+TimeoutStopSec=15
+KillMode=control-group
+
+Restart=always
+RestartSec=3
+
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
