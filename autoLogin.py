@@ -193,8 +193,8 @@ try:
         input.dispatchEvent(new Event('change', { bubbles: true }));
         }
 
-        setReactInput('#email', 'manav@mail.com');
-        setReactInput('#password', 'attacker12345');
+        setReactInput('#email', 'john@mail.com');
+        setReactInput('#password', 'Z8ctUXdmoIxsgG0wqMWU');
         """)
 
     # Click login
