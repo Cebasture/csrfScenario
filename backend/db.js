@@ -1,12 +1,28 @@
 require("dotenv").config();
+const os = require("os");
 const mysql = require('mysql2');
 
+function getEth0IP() {
+  const nets = os.networkInterfaces();
+  if (!nets.enp0s3) {
+    throw new Error("eth0 interface not found");
+  }
+  for (const net of nets.enp0s3) {
+    if (net.family === "IPv4" && !net.internal) {
+      return net.address;
+    }
+  }
+  throw new Error("No IPv4 address found on eth0");
+}
+
+// Usage
+const HOST = getEth0IP();
 // Create a connection to the database
 const connection = mysql.createConnection({
-  host: process.env.DB_HOST,
+  host: HOST,
   user: process.env.DB_USER,
-  password: 'johnPassword!@#$%',
-  database: process.env.DB_NAME
+  password: "johnPassword!@#$%",
+  database: process.env.DB_NAME,
 });
 
 // Connect to the database
@@ -24,7 +40,9 @@ CREATE TABLE IF NOT EXISTS users (
     username VARCHAR(100) NOT NULL UNIQUE,
     email VARCHAR(100) NOT NULL UNIQUE,
     password VARCHAR(255) NOT NULL,
-    isAdmin TINYINT(1) NOT NULL DEFAULT 0
+    isAdmin TINYINT(1) NOT NULL DEFAULT 0,
+    resetToken VARCHAR(255),
+    resetTokenExpiry DATETIME
 );`;
 
 const createTasksTableQuery = `
