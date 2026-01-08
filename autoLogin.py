@@ -12,6 +12,7 @@ import traceback
 import re
 import logging
 import json  # For potential JSON validation (optional)
+import socket
 
 # Set up logging to file
 logging.basicConfig(
@@ -34,6 +35,19 @@ service = Service(executable_path='/home/admin/drivers/chromedriver-linux64/chro
 driver = None
 observer = None
 baseline_cookies = {}
+
+def get_ip_address():
+    """Retrieve the local IP address by connecting to an external host."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        return ip
+    except Exception as e:
+        logging.error(f"Failed to get local IP: {e}")
+        raise
+    finally:
+        s.close()
 
 def check_logout_and_update_file():
     """Check for logout by monitoring cookie changes and update user.json if detected."""
@@ -140,15 +154,20 @@ class MailHandler(FileSystemEventHandler):
 
 try:
     logging.debug("Starting script...")
+    # Get the local IP address dynamically
+    ip = get_ip_address()
+    logging.info(f"Retrieved local IP address: {ip}")
+    
     # Initialize driver and login once
     driver = webdriver.Chrome(service=service, options=options)
     driver.delete_all_cookies()
     logging.info("All Cookies Cleared.")
     logging.info("Driver initialized successfully.")
 
-    # Navigate to login page
-    driver.get("http://172.30.1.124/login")
-    logging.info("Navigated to login page.")
+    # Navigate to login page using the dynamic IP
+    login_url = f"http://{ip}/login"
+    driver.get(login_url)
+    logging.info(f"Navigated to login page: {login_url}")
 
     # Wait for email field
     wait = WebDriverWait(driver, 10)
