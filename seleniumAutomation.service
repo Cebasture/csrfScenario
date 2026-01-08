@@ -13,7 +13,7 @@ WorkingDirectory=/home/admin
 # Optional but recommended: wait until Apache is really listening
 ExecStartPre=/bin/bash -c 'until curl -sf http://127.0.0.1/ > /dev/null; do sleep 2; done'
 
-ExecStart=/home/admin/automation.sh
+ExecStart=/home/admin/csrfScenario/automation.sh
 KillMode=control-group
 Restart=on-failure
 RestartSec=5

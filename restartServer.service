@@ -1,0 +1,7 @@
+[Unit]
+Description=Restart backend on enp0s3 IP change
+
+[Service]
+Type=oneshot
+ExecStart=/bin/systemctl restart csrf-backend.service
+
