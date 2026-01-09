@@ -9,8 +9,6 @@ Wants=network-online.target docker.service
 [Service]
 Type=simple
 WorkingDirectory=/home/admin
-User=admin
-Group=admin  # Assuming 'admin' group exists; adjust if needed
 
 # Wait for network to be online (more robust check)
 ExecStartPre=/bin/bash -c 'until ping -c1 -W1 8.8.8.8 > /dev/null 2>&1; do sleep 2; done'
