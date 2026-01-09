@@ -21,7 +21,7 @@ const HOST = getEth0IP();
 const connection = mysql.createConnection({
   host: HOST,
   user: process.env.DB_USER,
-  password: "johnPassword!@#$%",
+  password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
 });
 
