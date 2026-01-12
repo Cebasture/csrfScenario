@@ -126,6 +126,8 @@ class MailHandler(FileSystemEventHandler):
             logging.error("Driver not initialized.")
             return
         
+        time.sleep(10)  # Brief pause before visiting link
+        
         try:
             driver.get(link_url)
             
