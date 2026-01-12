@@ -462,3 +462,51 @@ body {
     font-size: 18px;
   }
 }
+/* Password input container for eye icon toggle */
+.password-input-container {
+  position: relative; /* Allows absolute positioning of the icon */
+  margin-bottom: 10px; /* Space between inputs */
+}
+
+.password-input {
+  width: 100%; /* Full width of container */
+  padding: 8px 40px 8px 12px; /* Extra right padding for icon space */
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 14px;
+  box-sizing: border-box;
+  height: 36px; /* Explicit height for alignment */
+  line-height: 20px; /* Consistent line height */
+  margin: 0; /* Reset any default margins */
+}
+
+.password-input:focus {
+  outline: none;
+  border-color: #007bff; /* Blue focus border for accessibility */
+  box-shadow: 0 0 5px rgba(0, 123, 255, 0.5);
+}
+
+/* Eye icon for toggling password visibility */
+.password-toggle-icon {
+  position: absolute;
+  right: 10px; /* Position on the right side inside the input */
+  top: 50%; /* Center vertically */
+  transform: translateY(-50%); /* Perfect vertical centering */
+  cursor: pointer;
+  color: black; /* Plain black icon */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px; /* Smaller size for minimal look */
+  height: 20px; /* Smaller size for minimal look */
+}
+
+.password-toggle-icon:focus {
+  outline: 2px solid #007bff; /* Focus ring for accessibility */
+  outline-offset: 2px;
+}
+
+.password-toggle-icon svg {
+  width: 16px; /* Icon size */
+  height: 16px;
+}

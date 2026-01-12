@@ -3,6 +3,7 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import validator from "validator"; // For sanitization
+import { FaEye, FaEyeSlash } from "react-icons/fa";
 
 const AdminDashboard = ({ setIsAuthenticated, setUserRole }) => {
   const [activeSection, setActiveSection] = useState("todo");
@@ -15,6 +16,8 @@ const AdminDashboard = ({ setIsAuthenticated, setUserRole }) => {
   const [userTaskInput, setUserTaskInput] = useState("");
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [showOldPassword, setShowOldPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
   const [errors, setErrors] = useState({});
   const navigate = useNavigate();
 
@@ -406,29 +409,54 @@ const AdminDashboard = ({ setIsAuthenticated, setUserRole }) => {
         {activeSection === "profile" && (
           <section className="dashboard-section">
             <h2>Profile</h2>
+
             <div className="dashboard-profile-box">
               <p>
-                <strong>Email:</strong> <span>{userEmail}</span>
+                <strong>Email:</strong> {userEmail}
               </p>
+
               <h3>Change Password</h3>
-              <input
-                type="password"
-                value={oldPassword}
-                onChange={(e) => setOldPassword(e.target.value)}
-                placeholder="Old Password"
-              />
+
+              <div className="password-input-container">
+                <input
+                  type={showOldPassword ? "text" : "password"}
+                  value={oldPassword}
+                  onChange={(e) => setOldPassword(e.target.value)}
+                  placeholder="Old Password"
+                  className="password-input"
+                />
+                <span
+                  className="password-toggle-icon"
+                  onClick={() => setShowOldPassword(!showOldPassword)}
+                  aria-label="Toggle old password visibility"
+                >
+                  {showOldPassword ? <FaEyeSlash /> : <FaEye />}
+                </span>
+              </div>
               {errors.oldPassword && (
                 <span className="dashboard-error">{errors.oldPassword}</span>
               )}
-              <input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="New Password"
-              />
+
+              <div className="password-input-container">
+                <input
+                  type={showNewPassword ? "text" : "password"}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="New Password"
+                  className="password-input"
+                />
+                <span
+                  className="password-toggle-icon"
+                  onClick={() => setShowNewPassword(!showNewPassword)}
+                  aria-label="Toggle new password visibility"
+                >
+                  {showNewPassword ? <FaEyeSlash /> : <FaEye />}
+                </span>
+              </div>
               {errors.newPassword && (
                 <span className="dashboard-error">{errors.newPassword}</span>
               )}
+
               <button onClick={handleChangePassword}>Update Password</button>
             </div>
           </section>
