@@ -3,9 +3,13 @@ import { Link } from "react-router-dom";
 import axios from "axios";
 import validator from "validator"; // For sanitization/validation
 
+
 const ForgotPassword = () => {
   const [email, setEmail] = useState("");
   const [errors, setErrors] = useState({});
+
+  axios.defaults.baseURL = "/api";
+  axios.defaults.withCredentials = true;
 
   // Sanitization function
   const sanitizeInput = (input) => {

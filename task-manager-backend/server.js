@@ -90,7 +90,7 @@ const transporter = nodemailer.createTransport({
 
 // Function to send reset email
 const sendResetEmail = async (email, resetToken) => {
-  const resetUrl = `${process.env.CORS_ORIGIN}/reset-password?token=${resetToken}`;
+  const resetUrl = `http://` + HOST + `/reset-password?token=${resetToken}`;
   const mailOptions = {
     from: "noreply@yourdomain.com",
     to: email,
