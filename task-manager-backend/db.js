@@ -1,6 +1,6 @@
 require("dotenv").config();
 const os = require("os");
-const mysql = require('mysql2');
+const mysql = require("mysql2");
 
 function getEth0IP() {
   const nets = os.networkInterfaces();
@@ -21,17 +21,17 @@ const HOST = getEth0IP();
 const connection = mysql.createConnection({
   host: HOST,
   user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
+  password: "johnPassword!@#$%",
   database: process.env.DB_NAME,
 });
 
 // Connect to the database
 connection.connect((err) => {
   if (err) {
-    console.error('Error connecting to the database:', err);  
+    console.error("Error connecting to the database:", err);
     return;
   }
-  console.log('Connected to the MySQL database.');
+  console.log("Connected to the MySQL database.");
 });
 
 const createTableQuery = `
@@ -57,17 +57,17 @@ CREATE TABLE IF NOT EXISTS tasks (
 
 connection.query(createTableQuery, (err) => {
   if (err) {
-      console.error("Error creating users table:", err);
+    console.error("Error creating users table:", err);
   } else {
-      console.log("Users table ready!");
-      // Create tasks table after users table
-      connection.query(createTasksTableQuery, (err) => {
-          if (err) {
-              console.error("Error creating tasks table:", err);
-          } else {
-              console.log("Tasks table ready!");
-          }
-      });
+    console.log("Users table ready!");
+    // Create tasks table after users table
+    connection.query(createTasksTableQuery, (err) => {
+      if (err) {
+        console.error("Error creating tasks table:", err);
+      } else {
+        console.log("Tasks table ready!");
+      }
+    });
   }
 });
 

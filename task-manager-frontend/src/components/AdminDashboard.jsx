@@ -213,7 +213,7 @@ const AdminDashboard = ({ setIsAuthenticated, setUserRole }) => {
   = '"' + task.taskID + '","' + task.task + '","' + task.assignedTo + '"\\n'
 - })
 `;
-    const url = `/export-csv?template=${encodeURIComponent(template)}`;
+    const url = `/api/export-csv?template=${encodeURIComponent(template)}`;
     window.location.href = url;
   };
 

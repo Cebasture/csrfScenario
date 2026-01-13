@@ -21,7 +21,7 @@ const Dashboard = ({ setIsAuthenticated, setUserRole }) => {
   const navigate = useNavigate();
 
   // const apiUrl = import.meta.env.VITE_API_URL;
-  axios.defaults.baseURL = "/api";
+  axios.defaults.baseURL = "";
   axios.defaults.withCredentials = true;
 
   // Sanitization function

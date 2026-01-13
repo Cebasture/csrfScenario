@@ -101,7 +101,7 @@ const sendResetEmail = async (email, resetToken) => {
 };
 
 // CSRF Token Endpoint
-app.get("/csrf-token", (req, res) => {
+app.get("/api/csrf-token", (req, res) => {
   console.log("CGDDFDSHJS", req.session.csrfToken);
   if (!req.session.csrfToken) {
     console.log("No CSRF token in session");
@@ -111,7 +111,7 @@ app.get("/csrf-token", (req, res) => {
 });
 
 // Routes
-app.post("/register", (req, res) => {
+app.post("/api/register", (req, res) => {
   const { username, password, email } = req.body;
   const query =
     "INSERT INTO users (username, password, email) VALUES (?, ?, ?)";
@@ -127,7 +127,7 @@ app.post("/register", (req, res) => {
   });
 });
 
-app.post("/login", (req, res) => {
+app.post("/api/login", (req, res) => {
   const { email, password } = req.body;
   const query = "SELECT * FROM users WHERE email = ? AND password = ?";
   db.query(query, [email, password], (err, results) => {
@@ -150,7 +150,7 @@ app.post("/login", (req, res) => {
   });
 });
 
-app.post("/forgot-password", async (req, res) => {
+app.post("/api/forgot-password", async (req, res) => {
   const { email } = req.body;
   const [user] = await db
     .promise()
@@ -171,7 +171,7 @@ app.post("/forgot-password", async (req, res) => {
   res.json({ message: "Reset email sent" });
 });
 
-app.post("/reset-password", async (req, res) => {
+app.post("/api/reset-password", async (req, res) => {
   const { token, newPassword } = req.body;
   // const hashedToken = await bcrypt.hash(token, 12);
   const [user] = await db
@@ -190,7 +190,7 @@ app.post("/reset-password", async (req, res) => {
   res.json({ message: "Password reset successful" });
 });
 
-app.get("/me", requireLogin, (req, res) => {
+app.get("/api/me", requireLogin, (req, res) => {
   console.log("Session ID:", req.session.id);
   db.query(
     "SELECT username, email, id, isAdmin FROM users WHERE id = ?",
@@ -215,7 +215,7 @@ app.get("/me", requireLogin, (req, res) => {
   );
 });
 
-app.get("/adminMe", requireLogin, (req, res) => {
+app.get("/api/adminMe", requireLogin, (req, res) => {
   db.query(
     "SELECT username, email, id, isAdmin FROM users WHERE id = ?",
     [req.session.userID],
@@ -239,7 +239,7 @@ app.get("/adminMe", requireLogin, (req, res) => {
   );
 });
 
-app.post("/change-password", requireLogin, (req, res) => {
+app.post("/api/change-password", requireLogin, (req, res) => {
   // console.log(1);
   console.log(req.headers.cookie);
   console.log(req.session.userID);
@@ -268,7 +268,7 @@ app.post("/change-password", requireLogin, (req, res) => {
   });
 });
 
-app.post("/create-task", requireLogin, validateToken, (req, res) => {
+app.post("/api/create-task", requireLogin, validateToken, (req, res) => {
   const { username, task } = req.body;
   if (!task) {
     return res.status(400).json({ error: "Task is required" });
@@ -327,7 +327,7 @@ app.post("/create-task", requireLogin, validateToken, (req, res) => {
   });
 });
 
-app.get("/export-csv", requireLogin, (req, res) => {
+app.get("/api/export-csv", requireLogin, (req, res) => {
   const { template } = req.query;
 
   const query = `
@@ -368,7 +368,7 @@ app.get("/export-csv", requireLogin, (req, res) => {
   });
 });
 
-app.get("/get-tasks", requireLogin, (req, res) => {
+app.get("/api/get-tasks", requireLogin, (req, res) => {
   const { assigned } = req.query;
   if (assigned !== "0" && assigned !== "1") {
     return res
@@ -391,7 +391,7 @@ app.get("/get-tasks", requireLogin, (req, res) => {
   });
 });
 
-app.post("/delete-task", requireLogin, validateToken, (req, res) => {
+app.post("/api/delete-task", requireLogin, validateToken, (req, res) => {
   const { taskId } = req.body;
   if (!taskId) {
     return res.status(400).json({ error: "Task ID is required" });
@@ -428,7 +428,7 @@ app.post("/delete-task", requireLogin, validateToken, (req, res) => {
   });
 });
 
-app.post("/mark-done", requireLogin, validateToken, (req, res) => {
+app.post("/api/mark-done", requireLogin, validateToken, (req, res) => {
   const { taskId } = req.body;
   if (!taskId) {
     return res.status(400).json({ error: "Task ID is required" });
@@ -467,7 +467,7 @@ app.post("/mark-done", requireLogin, validateToken, (req, res) => {
   });
 });
 
-app.get("/user-tasks", requireLogin, (req, res) => {
+app.get("/api/user-tasks", requireLogin, (req, res) => {
   const query = `
     SELECT t.id, t.task, t.status, u.username 
     FROM tasks t 
@@ -492,7 +492,7 @@ app.get("/user-tasks", requireLogin, (req, res) => {
   });
 });
 
-app.post("/logout", (req, res) => {
+app.post("/api/logout", (req, res) => {
   req.session.destroy((err) => {
     if (err) {
       console.error("Session destruction error:", err);
