@@ -48,17 +48,32 @@ body {
 
 /* Sidebar */
 .dashboard-sidebar {
-  width: 250px;
+  width: 350px;
   background: #f8f9fa;
   padding: 2rem 1.5rem;
   border-right: 1px solid #e9ecef;
   height: 100%; /* Full height of container */
 }
 
+.dashboard-sidebar h1 {
+  /* font-size: 1.5rem; */
+  color: #000000; /* Blue accent */
+  font-weight: 800;
+  text-align: center;
+}
+
 .dashboard-sidebar h2 {
   font-size: 1.5rem;
   color: #4a90e2; /* Blue accent */
   font-weight: 600;
+  margin-bottom: 1.5rem;
+  text-align: center;
+}
+
+.dashboard-sidebar h4 {
+  /* font-size: 1.5rem; */
+  color: #000000; /* Blue accent */
+  font-weight: 800;
   margin-bottom: 1.5rem;
   text-align: center;
 }

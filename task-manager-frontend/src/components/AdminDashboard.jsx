@@ -283,6 +283,8 @@ const AdminDashboard = ({ setIsAuthenticated, setUserRole }) => {
     <div className="dashboard-container">
       {/* Sidebar */}
       <aside className="dashboard-sidebar">
+        <h1>NewtBug</h1>
+        <h4>Task-Manager</h4>
         <h2>Admin Dashboard</h2>
         <ul>
           <li

@@ -115,7 +115,9 @@ const Login = ({ setAuth, setRole }) => {
           />
           {errors.password && <span className="error">{errors.password}</span>}
         </div>
-        <button id="login-button" type="submit">Login</button>
+        <button id="login-button" type="submit">
+          Login
+        </button>
       </form>
       <div className="links">
         <Link to="/forgot-password">Forgot Password?</Link> |
