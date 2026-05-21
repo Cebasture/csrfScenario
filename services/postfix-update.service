@@ -1,0 +1,24 @@
+[Unit]
+Description=Update Postfix mynetworks + Reload
+After=network-online.target
+Wants=network-online.target
+Requires=postfix.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=no
+User=root
+Group=root
+
+# Step 1: Run Python script
+ExecStartPre=/usr/bin/python3 /usr/local/bin/startup.py
+
+# Step 2: Reload postfix
+ExecStart=/bin/systemctl reload postfix
+
+TimeoutStartSec=60
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -8,11 +8,11 @@ import {
 import axios from "axios";
 import Login from "./components/Login";
 import Register from "./components/Register";
-import ForgotPassword from "./components/ForgotPassword";
+// import ForgotPassword from "./components/ForgotPassword";
 import Dashboard from "./components/Dashboard";
 import AdminDashboard from "./components/AdminDashboard";
 import ProtectedRoute from "./components/ProtectedRoute";
-import ResetPassword from "./components/ResetPassword";
+// import ResetPassword from "./components/ResetPassword";
 import "./App.css"; // Optional: Global styles
 
 function App() {
@@ -22,7 +22,6 @@ function App() {
   // const apiUrl = import.meta.env.VITE_API_URL;
   axios.defaults.baseURL = "/api";
   axios.defaults.withCredentials = true;
-
 
   // Check authentication and role on app load
   const checkAuth = async (userRole) => {
@@ -73,8 +72,7 @@ function App() {
           element={<Login setAuth={setIsAuthenticated} setRole={setUserRole} />}
         />
         <Route path="/register" element={<Register />} />
-        <Route path="/forgot-password" element={<ForgotPassword />} />
-        <Route path="/reset-password" element={<ResetPassword />} />
+
         {/* Protected Routes */}
         <Route
           path="/dashboard"

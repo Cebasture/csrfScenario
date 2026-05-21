@@ -8,25 +8,31 @@ const cors = require("cors");
 const crypto = require("crypto");
 const db = require("./db");
 const app = express();
-const nodemailer = require("nodemailer");
+// const nodemailer = require("nodemailer");
 const pug = require("pug");
 const port = process.env.PORT;
 
-function getEth0IP() {
+function getNonLoopbackIP() {
   const nets = os.networkInterfaces();
-  if (!nets.enp0s3) {
-    throw new Error("eth0 interface not found");
-  }
-  for (const net of nets.enp0s3) {
-    if (net.family === "IPv4" && !net.internal) {
-      return net.address;
+
+  for (const [iface, addresses] of Object.entries(nets)) {
+    // Skip loopback (lo)
+    if (iface === "lo") continue;
+
+    // Found the only other interface - return its IPv4
+    for (const addr of addresses) {
+      if (addr.family === "IPv4" && !addr.internal) {
+        console.log(`Using ${iface}: ${addr.address}`);
+        return addr.address;
+      }
     }
   }
-  throw new Error("No IPv4 address found on eth0");
+
+  throw new Error("No non-loopback IPv4 interface found");
 }
 
 // Usage
-const HOST = getEth0IP();
+const HOST = getNonLoopbackIP();
 
 app.use(
   cors({
@@ -34,7 +40,7 @@ app.use(
     methods: ["GET", "POST"],
     allowedHeaders: ["Content-Type", "x-csrf-token"],
     credentials: true,
-  })
+  }),
 );
 
 app.use(bodyParser.json());
@@ -53,7 +59,7 @@ app.use(
       maxAge: 1000 * 60 * 60, // 1 hour
       // domain: process.env.CORS_ORIGIN.split('://')[1].split(':')[0]
     },
-  })
+  }),
 );
 
 function requireLogin(req, res, next) {
@@ -80,25 +86,6 @@ function validateToken(req, res, next) {
   }
   next();
 }
-
-// Create transporter
-const transporter = nodemailer.createTransport({
-  host: "127.0.0.1", // Postfix or Mailhog
-  port: 1025, // Postfix SMTP port or Mailhog
-  secure: false, // Use TLS if needed
-});
-
-// Function to send reset email
-const sendResetEmail = async (email, resetToken) => {
-  const resetUrl = `http://` + HOST + `/reset-password?token=${resetToken}`;
-  const mailOptions = {
-    from: "noreply@yourdomain.com",
-    to: email,
-    subject: "Password Reset",
-    html: `<p>Click <a href="${resetUrl}">here</a> to reset your password. Link expires in 1 hour.</p>`,
-  };
-  await transporter.sendMail(mailOptions);
-};
 
 // CSRF Token Endpoint
 app.get("/api/csrf-token", (req, res) => {
@@ -150,46 +137,6 @@ app.post("/api/login", (req, res) => {
   });
 });
 
-app.post("/api/forgot-password", async (req, res) => {
-  const { email } = req.body;
-  const [user] = await db
-    .promise()
-    .query("SELECT * FROM users WHERE email = ?", [email]);
-  if (!user.length) {
-    return res.status(404).json({ error: "User not found" });
-  }
-  const resetToken = crypto.randomBytes(32).toString("hex");
-  // const hashedToken = await bcrypt.hash(resetToken, 12);
-  const expiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
-  await db
-    .promise()
-    .query(
-      "UPDATE users SET resetToken = ?, resetTokenExpiry = ? WHERE email = ?",
-      [resetToken, expiry, email]
-    );
-  await sendResetEmail(email, resetToken);
-  res.json({ message: "Reset email sent" });
-});
-
-app.post("/api/reset-password", async (req, res) => {
-  const { token, newPassword } = req.body;
-  // const hashedToken = await bcrypt.hash(token, 12);
-  const [user] = await db
-    .promise()
-    .query(
-      "SELECT * FROM users WHERE resetToken = ? AND resetTokenExpiry > NOW()",
-      [token]
-    );
-  if (!user.length)
-    return res.status(400).json({ error: "Invalid or expired token" });
-  // const hashedPassword = await bcrypt.hash(newPassword, 12);
-  db.query(
-    "UPDATE users SET password = ?, resetToken = NULL, resetTokenExpiry = NULL WHERE id = ?",
-    [newPassword, user[0].id]
-  );
-  res.json({ message: "Password reset successful" });
-});
-
 app.get("/api/me", requireLogin, (req, res) => {
   console.log("Session ID:", req.session.id);
   db.query(
@@ -211,7 +158,7 @@ app.get("/api/me", requireLogin, (req, res) => {
           role: user.isAdmin ? "admin" : "user",
         });
       }
-    }
+    },
   );
 });
 
@@ -235,36 +182,88 @@ app.get("/api/adminMe", requireLogin, (req, res) => {
           role: user.isAdmin ? "admin" : "user",
         });
       }
-    }
+    },
   );
 });
 
+// app.post("/api/change-password", requireLogin, (req, res) => {
+//   // console.log(1);
+//   console.log(req.headers.cookie);
+//   console.log(req.session.userID);
+//   console.log(req.session);
+//   const { oldPassword, newPassword } = req.body;
+//   const userID = req.session.userID;
+//   console.log(oldPassword);
+//   const query = `UPDATE users SET password="${newPassword}" WHERE id=${userID} AND password="${oldPassword}"`;
+//   console.log(query);
+//   db.query(query, (err) => {
+//     if (err) {
+//       console.error("SQL Error:", err);
+//       return res.status(500).json({ error: "Error updating password" });
+//     }
+//   });
+//   req.session.destroy((err) => {
+//     if (err) {
+//       console.error("Session destruction error:", err);
+//       return res.status(500).json({ error: "Logout failed" });
+//     }
+//     res.clearCookie("connect.sid", {
+//       sameSite: "none",
+//       secure: false,
+//     });
+//     res.json({ message: "Password updated successfully" });
+//   });
+// });
+
+// ============================================================
+// FIXED /api/change-password endpoint
+// ============================================================
+//
+// Problems fixed:
+//
+// 1. db.query() was fire-and-forget: session was destroyed even
+//    if the UPDATE failed or hadn't finished yet.
+//
+// 2. res.clearCookie() was called with options that didn't match
+//    how express-session originally SET the cookie, so the browser
+//    silently ignored the clear instruction and the cookie stayed.
+//    clearCookie() must be called with NO extra options (or options
+//    that exactly mirror the Set-Cookie header used at login time)
+//    so the browser's cookie-matching logic accepts the deletion.
+//
+// 3. res.clearCookie() was called BEFORE the response was sent in
+//    some error branches, causing header conflicts.
+// ============================================================
+
 app.post("/api/change-password", requireLogin, (req, res) => {
-  // console.log(1);
-  console.log(req.headers.cookie);
-  console.log(req.session.userID);
-  console.log(req.session);
   const { oldPassword, newPassword } = req.body;
   const userID = req.session.userID;
-  console.log(oldPassword);
+
+  console.log("Cookie header  :", req.headers.cookie);
+  console.log("Session userID :", userID);
+  console.log("Session object :", req.session);
+  console.log("Old password   :", oldPassword);
   const query = `UPDATE users SET password="${newPassword}" WHERE id=${userID} AND password="${oldPassword}"`;
-  console.log(query);
-  db.query(query, (err) => {
+  console.log("Query:", query);
+
+  db.query(query, (err, result) => {
     if (err) {
       console.error("SQL Error:", err);
       return res.status(500).json({ error: "Error updating password" });
     }
-  });
-  req.session.destroy((err) => {
-    if (err) {
-      console.error("Session destruction error:", err);
-      return res.status(500).json({ error: "Logout failed" });
+    if (result.affectedRows === 0) {
+      // Old password didn't match — don't touch the session
+      return res.status(401).json({ error: "Incorrect current password" });
     }
-    res.clearCookie("connect.sid", {
-      sameSite: "none",
-      secure: false,
+    req.session.destroy((err) => {
+      if (err) {
+        console.error("Session destruction error:", err);
+        return res.status(500).json({ error: "Logout failed" });
+      }
+      res.clearCookie("connect.sid", { path: "/" });
+      console.log("Session destroyed and cookie cleared successfully.");
+      return res.json({ message: "Password updated successfully" });
     });
-    res.json({ message: "Password updated successfully" });
   });
 });
 

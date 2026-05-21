@@ -21,7 +21,7 @@ const Dashboard = ({ setIsAuthenticated, setUserRole }) => {
   const navigate = useNavigate();
 
   // const apiUrl = import.meta.env.VITE_API_URL;
-  axios.defaults.baseURL = "";
+  axios.defaults.baseURL = "/api";
   axios.defaults.withCredentials = true;
 
   // Sanitization function
@@ -222,6 +222,9 @@ const Dashboard = ({ setIsAuthenticated, setUserRole }) => {
         }
       );
       alert(response.data.message || response.data.error);
+      if (response.data.message) {
+        logout();
+      }
     } catch (error) {
       alert(error.response?.data?.error || "Error changing password");
     }

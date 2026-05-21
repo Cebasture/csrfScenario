@@ -1,9 +1,0 @@
-[Unit]
-Description=Watch enp0s3 IP changes
-
-[Path]
-PathChanged=/run/systemd/netif/links/2
-
-[Install]
-WantedBy=multi-user.target
-
