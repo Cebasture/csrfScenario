@@ -3,4 +3,4 @@ set -e
 
 source /home/john/selenium_venv/bin/activate
 
-/home/john/selenium_venv/bin/python3 /home/john/csrfScenario/scripts/autoLogin.py
+/opt/selenium_venv/bin/python3 /usr/local/bin/autoLogin.py
