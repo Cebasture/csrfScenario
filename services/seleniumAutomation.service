@@ -9,7 +9,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStartPre=/bin/sleep 10
-ExecStart=/usr/local/bin/automation.sh
+ExecStart=/opt/selenium_venv/bin/python3 /usr/local/bin/autoLogin.py
 KillMode=control-group
 Restart=on-failure
 RestartSec=5
