@@ -186,83 +186,59 @@ app.get("/api/adminMe", requireLogin, (req, res) => {
   );
 });
 
-// app.post("/api/change-password", requireLogin, (req, res) => {
-//   // console.log(1);
-//   console.log(req.headers.cookie);
-//   console.log(req.session.userID);
-//   console.log(req.session);
-//   const { oldPassword, newPassword } = req.body;
-//   const userID = req.session.userID;
-//   console.log(oldPassword);
-//   const query = `UPDATE users SET password="${newPassword}" WHERE id=${userID} AND password="${oldPassword}"`;
-//   console.log(query);
-//   db.query(query, (err) => {
-//     if (err) {
-//       console.error("SQL Error:", err);
-//       return res.status(500).json({ error: "Error updating password" });
-//     }
-//   });
-//   req.session.destroy((err) => {
-//     if (err) {
-//       console.error("Session destruction error:", err);
-//       return res.status(500).json({ error: "Logout failed" });
-//     }
-//     res.clearCookie("connect.sid", {
-//       sameSite: "none",
-//       secure: false,
-//     });
-//     res.json({ message: "Password updated successfully" });
-//   });
-// });
-
-// ============================================================
-// FIXED /api/change-password endpoint
-// ============================================================
-//
-// Problems fixed:
-//
-// 1. db.query() was fire-and-forget: session was destroyed even
-//    if the UPDATE failed or hadn't finished yet.
-//
-// 2. res.clearCookie() was called with options that didn't match
-//    how express-session originally SET the cookie, so the browser
-//    silently ignored the clear instruction and the cookie stayed.
-//    clearCookie() must be called with NO extra options (or options
-//    that exactly mirror the Set-Cookie header used at login time)
-//    so the browser's cookie-matching logic accepts the deletion.
-//
-// 3. res.clearCookie() was called BEFORE the response was sent in
-//    some error branches, causing header conflicts.
-// ============================================================
-
 app.post("/api/change-password", requireLogin, (req, res) => {
   const { oldPassword, newPassword } = req.body;
   const userID = req.session.userID;
 
-  console.log("Cookie header  :", req.headers.cookie);
   console.log("Session userID :", userID);
-  console.log("Session object :", req.session);
-  console.log("Old password   :", oldPassword);
   const query = `UPDATE users SET password="${newPassword}" WHERE id=${userID} AND password="${oldPassword}"`;
   console.log("Query:", query);
 
-  db.query(query, (err, result) => {
-    if (err) {
-      console.error("SQL Error:", err);
+  db.beginTransaction((txErr) => {
+    if (txErr) {
+      console.error("TX begin error:", txErr);
       return res.status(500).json({ error: "Error updating password" });
     }
-    if (result.affectedRows === 0) {
-      // Old password didn't match — don't touch the session
-      return res.status(401).json({ error: "Incorrect current password" });
-    }
-    req.session.destroy((err) => {
+
+    db.query(query, (err, result) => {
       if (err) {
-        console.error("Session destruction error:", err);
-        return res.status(500).json({ error: "Logout failed" });
+        console.error("SQL Error:", err);
+        return db.rollback(() =>
+          res.status(500).json({ error: "Error updating password" }),
+        );
       }
-      res.clearCookie("connect.sid", { path: "/" });
-      console.log("Session destroyed and cookie cleared successfully.");
-      return res.json({ message: "Password updated successfully" });
+
+      // 0 rows  -> wrong current password
+      // 1 row   -> legit self-change OR the intended targeted injection (john)
+      // >1 rows -> blanket payload (" OR 1=1 #): reject + roll back, same generic error
+      if (result.affectedRows !== 1) {
+        if (result.affectedRows > 1) {
+          console.warn(
+            `Blocked multi-row update (${result.affectedRows} rows matched)`,
+          );
+        }
+        return db.rollback(() =>
+          res.status(401).json({ error: "Incorrect current password" }),
+        );
+      }
+
+      db.commit((commitErr) => {
+        if (commitErr) {
+          console.error("Commit error:", commitErr);
+          return db.rollback(() =>
+            res.status(500).json({ error: "Error updating password" }),
+          );
+        }
+        req.session.destroy((sErr) => {
+          if (sErr) {
+            console.error("Session destruction error:", sErr);
+            return res.status(500).json({ error: "Logout failed" });
+          }
+          res.clearCookie("connect.sid", { path: "/" });
+          console.log("Session destroyed and cookie cleared successfully.");
+          return res.json({ message: "Password updated successfully" });
+        });
+      });
     });
   });
 });
