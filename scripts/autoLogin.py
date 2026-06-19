@@ -39,7 +39,7 @@ options.add_argument("--headless=new")
 options.add_argument("--no-sandbox")
 options.add_argument("--disable-dev-shm-usage")
 
-service = Service(executable_path='/home/john/drivers/chromedriver-linux64/chromedriver')
+service = Service(executable_path='/opt/chromedriver-linux64/chromedriver')
 
 # ---------------------------------------------------------------------------
 # Globals
