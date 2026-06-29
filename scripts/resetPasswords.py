@@ -9,6 +9,7 @@ import mysql.connector
 import sys
 import logging
 import os
+import re
 from pathlib import Path
 
 # Database configuration
