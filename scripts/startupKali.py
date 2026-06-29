@@ -11,9 +11,24 @@ import struct
 import fcntl
 import os
 import sys
+import logging
+import traceback
 
 POSTFIX_CONF = "/etc/postfix/main.cf"
 BASE_NETWORKS = "127.0.0.0/8 [::ffff:127.0.0.0]/104 [::1]/128"
+
+# ---------------------------------------------------------------------------
+# Logging: write to both a log file and the console (journald when run under
+# systemd via postfix-update.service).
+# ---------------------------------------------------------------------------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler("/var/log/postfix-update.log"),
+        logging.StreamHandler(),
+    ],
+)
 
 
 def get_non_loopback_interface_name():
@@ -30,7 +45,7 @@ def get_non_loopback_interface_name():
     if not non_loopback:
         raise RuntimeError("No non-loopback interfaces found.")
     if len(non_loopback) > 1:
-        print(f"[WARNING] Multiple non-loopback interfaces found: {non_loopback}. Using: {non_loopback[0]}")
+        logging.warning(f"Multiple non-loopback interfaces found: {non_loopback}. Using: {non_loopback[0]}")
     return non_loopback[0]
 
 
@@ -110,7 +125,7 @@ def update_postfix_conf(conf_path, network_cidr, ip_str):
             new_line = f"mynetworks = {BASE_NETWORKS} {network_cidr}\n"
             new_lines.append(new_line)
             mynetworks_updated = True
-            print(f"[INFO] Replaced mynetworks with:\n         {new_line.strip()}")
+            logging.info(f"Replaced mynetworks with: {new_line.strip()}")
 
         # ----------------------------------------------------------------
         # 2. relayhost directive
@@ -125,7 +140,7 @@ def update_postfix_conf(conf_path, network_cidr, ip_str):
             )
             new_lines.append(new_line)
             relayhost_updated = True
-            print(f"[INFO] Replaced relayhost with:\n         {new_line.strip()}")
+            logging.info(f"Replaced relayhost with: {new_line.strip()}")
 
         else:
             new_lines.append(line)
@@ -140,41 +155,41 @@ def update_postfix_conf(conf_path, network_cidr, ip_str):
     with open(conf_path, "w") as f:
         f.writelines(new_lines)
 
-    print(f"[INFO] Config written to {conf_path}")
+    logging.info(f"Config written to {conf_path}")
 
 
 def main():
-    print("=" * 60)
-    print("  Postfix mynetworks + relayhost Updater")
-    print("=" * 60)
+    logging.info("=== Postfix mynetworks + relayhost Updater ===")
 
     # 1. Identify non-loopback interface
     iface = get_non_loopback_interface_name()
-    print(f"[INFO] Interface selected : {iface}")
+    logging.info(f"Interface selected : {iface}")
 
     # 2. Get its IPv4 address
     ip_str = get_ip_address(iface)
-    print(f"[INFO] IPv4 address       : {ip_str}")
+    logging.info(f"IPv4 address       : {ip_str}")
 
     # 3. Get its subnet mask
     mask_str = get_subnet_mask(iface)
-    print(f"[INFO] Subnet mask        : {mask_str}")
+    logging.info(f"Subnet mask        : {mask_str}")
 
     # 4. Derive network address (all host bits = 0) in CIDR notation
     network_cidr = derive_network_cidr(ip_str, mask_str)
-    print(f"[INFO] Network CIDR       : {network_cidr}")
+    logging.info(f"Network CIDR       : {network_cidr}")
 
     # 5. Patch main.cf  (both mynetworks and relayhost)
     update_postfix_conf(POSTFIX_CONF, network_cidr, ip_str)
 
-    print("=" * 60)
-    print("  Done! Restart postfix to apply changes:")
-    print("    sudo systemctl restart postfix")
-    print("=" * 60)
+    logging.info("Done! Reload/restart postfix to apply changes.")
 
 
 if __name__ == "__main__":
     if os.geteuid() != 0:
-        print("[ERROR] This script must be run as root (sudo).")
+        logging.error("This script must be run as root (sudo).")
         sys.exit(1)
-    main()
+    try:
+        main()
+    except Exception as e:
+        logging.error(f"Fatal error: {e}")
+        logging.debug(traceback.format_exc())
+        sys.exit(1)

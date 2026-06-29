@@ -1,7 +1,8 @@
 [Unit]
 Description=Node.js Backend Server
-After=network-online.target systemd-networkd.service
-Wants=network-online.target
+# Start after the database is up. mysql.service is an alias of mariadb.service.
+After=network-online.target systemd-networkd.service mariadb.service
+Wants=network-online.target mariadb.service
 
 [Service]
 Type=simple

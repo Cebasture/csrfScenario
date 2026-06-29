@@ -16,6 +16,8 @@ import traceback
 import re
 import logging
 import sys
+import urllib.request
+import urllib.error
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -97,6 +99,61 @@ def get_non_loopback_ip():
     except Exception as e:
         logging.error(f"Error detecting non-loopback IP: {e}")
         return None
+
+
+# ---------------------------------------------------------------------------
+# Readiness probe
+# ---------------------------------------------------------------------------
+def wait_for_app_ready(base_url, timeout=180, interval=3):
+    """
+    Poll the frontend (apache) AND the backend API until both respond, so we
+    never attempt to log in before the whole stack is actually serving.
+
+    This replaces the old blind 'sleep 10' in the systemd unit, which was too
+    short on a cold boot and let selenium log into a backend that then
+    restarted (wiping the in-memory session) — the cause of the first-boot
+    CSRF failure.
+
+    Any HTTP status counts as "up": e.g. /api/csrf-token returns 401 with no
+    session, which still proves the API is listening. Only connection errors
+    and timeouts are treated as not-ready.
+
+    Returns True once both endpoints respond, False if the timeout is hit
+    (in which case we proceed anyway and let the normal login flow retry).
+    """
+    endpoints = [f"{base_url}/login", f"{base_url}/api/csrf-token"]
+    deadline = time.time() + timeout
+    pending = list(endpoints)
+
+    while pending:
+        still_pending = []
+        for url in pending:
+            try:
+                req = urllib.request.Request(url, method="GET")
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    logging.info(f"Readiness: {url} responded HTTP {resp.status} (up).")
+            except urllib.error.HTTPError as e:
+                # An HTTP error is still a response -> the server is up.
+                logging.info(f"Readiness: {url} responded HTTP {e.code} (up).")
+            except Exception as e:
+                logging.debug(f"Readiness: {url} not ready yet: {e}")
+                still_pending.append(url)
+
+        pending = still_pending
+        if not pending:
+            logging.info("Readiness: app is up (frontend + API responding).")
+            return True
+
+        if time.time() >= deadline:
+            logging.warning(
+                f"Readiness: timed out after {timeout}s; still not ready: {pending}. "
+                "Proceeding anyway."
+            )
+            return False
+
+        time.sleep(interval)
+
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -340,6 +397,12 @@ try:
 
     app_base_url = f"http://{ip}"
     logging.info(f"App base URL: {app_base_url}")
+
+    # ------------------------------------------------------------------
+    # Wait for the full stack (apache frontend + node API) to be ready
+    # before doing anything, instead of relying on a fixed boot delay.
+    # ------------------------------------------------------------------
+    wait_for_app_ready(app_base_url)
 
     # ------------------------------------------------------------------
     # Browser init + login
