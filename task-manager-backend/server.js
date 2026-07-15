@@ -473,10 +473,7 @@ app.post("/api/logout", (req, res) => {
       console.error("Session destruction error:", err);
       return res.status(500).json({ error: "Logout failed" });
     }
-    res.clearCookie("connect.sid", {
-      sameSite: "none",
-      secure: false,
-    }); // Clear the session cookie (adjust name if different)
+    res.clearCookie("connect.sid", { path: "/" }); // Clear the session cookie (adjust name if different)
     res.json({ message: "Logged out successfully" });
   });
 });
