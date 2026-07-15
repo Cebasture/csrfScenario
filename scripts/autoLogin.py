@@ -68,7 +68,6 @@ driver_lock      = threading.Lock()
 # this many seconds instead of hanging the watcher indefinitely.
 LINK_VISIT_TIMEOUT = 8
 
-
 # ---------------------------------------------------------------------------
 # Network helpers
 # ---------------------------------------------------------------------------
@@ -115,7 +114,6 @@ def get_non_loopback_ip():
     except Exception as e:
         logging.error(f"Error detecting non-loopback IP: {e}")
         return None
-
 
 # ---------------------------------------------------------------------------
 # Readiness probe
@@ -168,46 +166,11 @@ def wait_for_app_ready(base_url, timeout=180, interval=3):
             return False
 
         time.sleep(interval)
-
     return True
-
 
 # ---------------------------------------------------------------------------
 # Cookie helpers
 # ---------------------------------------------------------------------------
-# def get_sid_from_app():
-#     """
-#     Navigate the browser to the app's dashboard (our trusted origin) and
-#     return the current value of connect.sid.
-
-#     This is the ONLY safe way to read session cookies — reading them after
-#     navigating to a third-party/error page gives an empty or unrelated jar.
-
-#     Returns:
-#         str   – the cookie value (may be empty string"" if absent)
-#         None  – driver call failed entirely
-#     """
-#     global driver, app_base_url
-#     try:
-#         # Only navigate back if we are not already on the app domain
-#         current = driver.current_url
-#         #if not current.startswith(app_base_url):
-#             #logging.debug(f"Browser is on '{current}', navigating back to app to read cookies.")
-#         driver.get(f"{app_base_url}/login")
-#         WebDriverWait(driver, 10).until(
-#                 lambda d: d.execute_script("return document.readyState") == "complete"
-#             )
-
-#         cookies = driver.get_cookies()
-#         for c in cookies:
-#             if c['name'] == 'connect.sid':
-#                 return c['value']
-#         return ""   # cookie absent on the app domain
-
-#     except Exception as e:
-#         logging.error(f"get_sid_from_app() failed: {e}")
-#         return None
-
 def get_sid_from_app(force_reload=False):
     global driver, app_base_url
     try:
@@ -282,7 +245,6 @@ def check_session_and_update_file():
     except Exception as e:
         logging.error(f"Failed to update {file_path}: {e}")
         return False
-
 
 # ---------------------------------------------------------------------------
 # Login helpers
@@ -361,7 +323,6 @@ def validate_admin_session():
         logging.error(f"validate_admin_session() failed: {e}")
         return False
 
-
 # ---------------------------------------------------------------------------
 # Graceful shutdown
 # ---------------------------------------------------------------------------
@@ -387,7 +348,6 @@ def cleanup_and_exit():
         logging.error(f"Cleanup error: {e}")
     finally:
         sys.exit(0)
-
 
 # ---------------------------------------------------------------------------
 # Mail watcher
@@ -498,9 +458,7 @@ class MailHandler(FileSystemEventHandler):
                 except Exception:
                     pass
 
-        # Monitoring loop handles all decisions — we never update users.json here.
-
-
+# Monitoring loop handles all decisions — we never update users.json here.
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
