@@ -68,6 +68,18 @@ driver_lock      = threading.Lock()
 # this many seconds instead of hanging the watcher indefinitely.
 LINK_VISIT_TIMEOUT = 8
 
+# ▼▼▼ CHANGED: promoted to a module constant (was a local in main) so both the
+#             boot login and the on-mail re-login share the same retry budget.
+MAX_LOGIN_ATTEMPTS = 5
+
+# ★★★ NEW: set exactly once when a CSRF is confirmed. The watcher thread only
+#          ever SETS this (and flips users.json); the MAIN thread watches it and
+#          performs the actual sys.exit — a sys.exit() from the watcher thread
+#          would not stop the process.
+attack_confirmed   = threading.Event()
+# ▲▲▲ END CHANGED / NEW
+
+
 # ---------------------------------------------------------------------------
 # Network helpers
 # ---------------------------------------------------------------------------
@@ -114,6 +126,7 @@ def get_non_loopback_ip():
     except Exception as e:
         logging.error(f"Error detecting non-loopback IP: {e}")
         return None
+
 
 # ---------------------------------------------------------------------------
 # Readiness probe
@@ -166,16 +179,29 @@ def wait_for_app_ready(base_url, timeout=180, interval=3):
             return False
 
         time.sleep(interval)
+
     return True
+
 
 # ---------------------------------------------------------------------------
 # Cookie helpers
 # ---------------------------------------------------------------------------
 def get_sid_from_app(force_reload=False):
+    """
+    Read connect.sid from OUR app domain's cookie jar.
+
+    Only navigates back to /login when forced (e.g. during login) or when the
+    browser is currently off the app domain — reading cookies while parked on a
+    third-party/error page would give an empty or unrelated jar.
+
+    Returns:
+        str   – the cookie value ("" if absent on the app domain)
+        None  – a driver call failed entirely
+    """
     global driver, app_base_url
     try:
         current = driver.current_url
-        
+
         # Navigate if forced (like during login), or if we are not on the app domain
         if force_reload or not current.startswith(app_base_url):
             driver.get(f"{app_base_url}/login")
@@ -187,64 +213,71 @@ def get_sid_from_app(force_reload=False):
         for c in cookies:
             if c['name'] == 'connect.sid':
                 return c['value']
-        return "" 
+        return ""
 
     except Exception as e:
         logging.error(f"get_sid_from_app() failed: {e}")
         return None
 
-def check_session_and_update_file():
+
+# ▼▼▼ CHANGED: the old single function check_session_and_update_file() has been
+#             split into three so that (a) detection is separate from the file
+#             write and (b) the file flip is idempotent — a second queued mail
+#             can never double-flip users.json or re-trigger a win.
+# ★★★ NEW
+def session_destroyed():
     """
-    Check whether the server has destroyed the admin session by comparing
-    the current connect.sid (read from the app domain) to the baseline.
-
-    A change is only meaningful when:
-      1. The browser is on OUR app domain (not an error page or third-party page).
-      2. The cookie is genuinely gone or its value has changed.
-
-    Returns True  -> session terminated, users.json updated -> caller must exit.
-    Returns False -> session intact or read failed -> keep monitoring.
+    True if the app-domain connect.sid no longer matches baseline_sid
+    (destroyed or rotated by the server -> CSRF confirmed). Read errors and an
+    unchanged cookie both return False so we never act on a bad read.
     """
     global baseline_sid
-
-    current_sid = get_sid_from_app(force_reload=False)
-
-    if current_sid is None:
-        # Driver error - skip this tick, do not act
+    current = get_sid_from_app(force_reload=False)
+    if current is None:
         logging.debug("Skipping session check: could not read cookies from app.")
         return False
-
-    # Cookie unchanged
-    if current_sid == baseline_sid:
-        logging.debug(f"connect.sid unchanged ({current_sid[:16]}...) - session active.")
+    if current == baseline_sid:
+        logging.debug(f"connect.sid unchanged ({str(current)[:16]}...) - session active.")
         return False
-
-    # Cookie absent or rotated -> session was destroyed by the server
-    if current_sid == "":
-        logging.warning("connect.sid is GONE on app domain - session destroyed by server (CSRF confirmed).")
+    if current == "":
+        logging.warning("connect.sid GONE on app domain - session destroyed (CSRF confirmed).")
     else:
         logging.warning(
-            f"connect.sid CHANGED: {baseline_sid[:16]}... -> {current_sid[:16]}... "
-            "- server issued new session (old one destroyed)."
+            f"connect.sid CHANGED: {baseline_sid[:16]}... -> {current[:16]}... (CSRF confirmed)."
         )
+    return True
 
-    # Update users.json
+
+# ★★★ NEW
+def confirm_attack_once():
+    """
+    Flip the first 'true'->'false' in users.json EXACTLY once and set the
+    attack_confirmed event. Safe to call repeatedly — subsequent calls no-op.
+    """
+    if attack_confirmed.is_set():
+        return True
     file_path = '/var/www/html/assets/users.json'
     try:
         with open(file_path, 'r') as f:
             content = f.read()
-
-        updated_content = content.replace('true', 'false', 1)
-
         with open(file_path, 'w') as f:
-            f.write(updated_content)
-
+            f.write(content.replace('true', 'false', 1))
         logging.info(f"Updated {file_path}: first 'true' -> 'false'.")
-        return True
-
     except Exception as e:
         logging.error(f"Failed to update {file_path}: {e}")
         return False
+    attack_confirmed.set()
+    return True
+
+
+# ★★★ NEW (thin wrapper kept so the monitor loop reads the same as before)
+def check_session_and_update_file():
+    """Monitor-loop entry point: confirm + flip if the session was destroyed."""
+    if session_destroyed():
+        return confirm_attack_once()
+    return False
+# ▲▲▲ END CHANGED / NEW
+
 
 # ---------------------------------------------------------------------------
 # Login helpers
@@ -323,6 +356,75 @@ def validate_admin_session():
         logging.error(f"validate_admin_session() failed: {e}")
         return False
 
+
+# ★★★ NEW: the boot login retry loop, extracted verbatim from main() so the
+#          on-mail handler can reuse the EXACT same login + validation logic.
+#
+#          LOCK-FREE by contract: the caller is responsible for holding
+#          driver_lock if another thread might touch the browser. At boot there
+#          is no watcher thread yet; on re-login handle_attack() already holds
+#          the lock. do_login_flow() must therefore NEVER take driver_lock
+#          itself (driver_lock is a plain, non-reentrant Lock).
+def do_login_flow(login_url, max_attempts=MAX_LOGIN_ATTEMPTS):
+    """
+    Full login + validation retry loop. Returns the freshly rotated, validated
+    admin connect.sid on success, or None after max_attempts failures.
+
+    A successful login MUST rotate connect.sid (express-session issues a new id
+    once credentials are accepted). Steps per attempt:
+      1. Navigate to /login and capture the PRE-login connect.sid.
+      2. Submit the form.
+      3. Capture the POST-login connect.sid.
+      4. If it did NOT rotate -> login not effective -> retry.
+      5. If it rotated -> validate via /api/adminMe (200 only) -> retry if not.
+    """
+    global driver
+    for attempt in range(1, max_attempts + 1):
+        logging.info(f"Login attempt {attempt}/{max_attempts}...")
+
+        try:
+            driver.get(login_url)
+        except WebDriverException as e:
+            logging.warning(f"Could not load {login_url}: {e}; retrying.")
+            continue
+        logging.info(f"Navigated to: {login_url}")
+
+        pre_login_sid = get_sid_from_app(force_reload=True)
+        logging.info(f"Pre-login connect.sid: {str(pre_login_sid)[:16]}...")
+
+        try:
+            submit_login_form()
+        except Exception as e:
+            logging.warning(f"submit_login_form failed: {e}; retrying.")
+            continue
+
+        # Give express-session a moment to accept the credentials and write the
+        # rotated cookie back to the browser.
+        logging.info("Waiting 3 s for session cookie to rotate...")
+        time.sleep(3)
+
+        post_login_sid = get_sid_from_app(force_reload=True)
+        logging.info(f"Post-login connect.sid: {str(post_login_sid)[:16]}...")
+
+        if post_login_sid is None:
+            logging.warning("Could not read connect.sid after login; retrying.")
+            continue
+        if not post_login_sid:
+            logging.warning("Rotated connect.sid is empty; retrying.")
+            continue
+        if post_login_sid == pre_login_sid:
+            logging.warning("connect.sid did NOT rotate — login not effective; retrying.")
+            continue
+        if not validate_admin_session():
+            logging.warning("sid rotated but /api/adminMe did not return 200; retrying.")
+            continue
+
+        logging.info("Login confirmed: sid rotated and /api/adminMe returned 200.")
+        return post_login_sid
+
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Graceful shutdown
 # ---------------------------------------------------------------------------
@@ -349,24 +451,28 @@ def cleanup_and_exit():
     finally:
         sys.exit(0)
 
+
 # ---------------------------------------------------------------------------
 # Mail watcher
 # ---------------------------------------------------------------------------
 class MailHandler(FileSystemEventHandler):
 
+    # ▼▼▼ CHANGED: on_created now delegates the whole attack to handle_attack()
+    #             instead of visiting links directly, so a fresh login happens
+    #             first and the browser lock is taken ONCE for the whole
+    #             login+visit sequence.
     def on_created(self, event):
         logging.debug(f"on_created triggered: {event.src_path}")
         if not event.is_directory and '.NewtBug' in event.src_path:
             logging.info(f"New mail detected: {event.src_path}")
             links = self.parse_mail_for_links(event.src_path)
             if links:
-                for link_url in links:
-                    logging.info(f"Extracted link: {link_url}")
-                    self.visit_link(link_url)
+                self.handle_attack(links)
             else:
                 logging.info("No http:// links found in email.")
         else:
             logging.debug(f"Ignored: is_directory={event.is_directory}, path={event.src_path}")
+    # ▲▲▲ END CHANGED
 
     def parse_mail_for_links(self, file_path):
         logging.debug(f"Parsing mail: {file_path}")
@@ -383,82 +489,121 @@ class MailHandler(FileSystemEventHandler):
             logging.error(f"Error parsing mail: {e}")
             return []
 
-    def visit_link(self, link_url):
-        """
-        Visit the link extracted from an email in a SEPARATE FOREGROUND TAB,
-        with a bounded load time, then close the tab.
+    # ★★★ NEW: the core resilience change. Per mail we take the lock ONCE,
+    #          refresh the admin session so the cookie is well inside Chrome's
+    #          2-min Lax-allow-unsafe window, adopt the rotated sid as the new
+    #          baseline, THEN visit every link.
+    #
+    #   Resilience properties:
+    #     - Broken/first-try mail costs nothing: a failed visit leaves the
+    #       session intact, the monitor does NOT exit, and the next mail gets
+    #       its own fresh login + fresh cookie.
+    #     - baseline_sid is updated UNDER the lock before release, so the
+    #       monitor can never mistake our own re-login rotation for a CSRF win.
+    #     - HEAL-RACE GUARD: if a PRIOR mail already destroyed the session, we
+    #       confirm the win instead of re-logging-in (which would resurrect the
+    #       session and mask the result).
+    def handle_attack(self, links):
+        global baseline_sid
+        login_url = f"{app_base_url}/login"
 
-        Why this shape:
-        - PROMPT LOAD. The link is loaded in a tab we switch focus to, so Chrome
-          does NOT throttle it the way it throttles background tabs. A single
-          link therefore fires its CSRF POST immediately instead of crawling.
-        - BOUNDED WASTE. A page-load timeout (LINK_VISIT_TIMEOUT) caps how long a
-          wrong/unreachable link can take. The CSRF form auto-submits as soon as
-          the attacker page's inline script runs, so a real page fires long
-          before the cap; a bad link is abandoned after the cap instead of
-          hanging forever.
-        - SHARED SESSION. The tab shares the one cookie jar, so the attacker page
-          auto-submits the CSRF with the admin connect.sid, and the server's
-          clear-cookie (on /api/change-password) is visible to the monitor.
-        - STABLE MONITORING. We always close the attacker tab and switch focus
-          back to the main app tab, so the monitor keeps reading connect.sid
-          against our trusted origin and is never dragged onto a third-party or
-          error page.
+        with driver_lock:
+            # A previous mail may already have succeeded. Don't re-login over a
+            # genuine win — confirm it instead.
+            if session_destroyed():
+                logging.info("Session already destroyed before this mail; confirming win.")
+                confirm_attack_once()
+                return
 
-        The driver_lock is held for the whole visit so this never races the
-        monitor loop's cookie read. The monitoring loop (not this function) is
-        solely responsible for detecting session changes and updating users.json.
+            logging.info("Mail received -> refreshing admin session (fresh cookie).")
+            new_sid = do_login_flow(login_url)
+            if not new_sid:
+                logging.error(
+                    "Re-login failed; skipping this mail's link(s). Session left "
+                    "as-is; waiting for the next mail."
+                )
+                # Best effort: get the monitor back onto the app domain.
+                try:
+                    get_sid_from_app(force_reload=True)
+                except Exception:
+                    pass
+                return
+
+            baseline_sid = new_sid
+            logging.info(f"Baseline updated to fresh sid: {baseline_sid[:16]}...")
+
+            for link_url in links:
+                logging.info(f"Visiting link: {link_url}")
+                self._visit_link_locked(link_url)
+
+            # Fast path: catch the win immediately so a later mail's re-login
+            # cannot heal it before the 1-Hz monitor tick notices.
+            if session_destroyed():
+                confirm_attack_once()
+
+    # ▼▼▼ CHANGED: renamed from visit_link -> _visit_link_locked and stripped of
+    #             its own `with driver_lock:` — the caller (handle_attack) now
+    #             holds the lock for the whole login+visit sequence. driver_lock
+    #             is a plain non-reentrant Lock, so this MUST stay lock-free.
+    def _visit_link_locked(self, link_url):
         """
-        global driver, driver_lock
+        Visit an emailed link in a SEPARATE FOREGROUND TAB with a bounded load
+        time, then close the tab. Caller MUST already hold driver_lock.
+
+        - PROMPT LOAD: foreground tab -> Chrome does not throttle it -> the CSRF
+          POST fires immediately.
+        - BOUNDED WASTE: LINK_VISIT_TIMEOUT caps a wrong/unreachable link.
+        - SHARED SESSION: the tab shares the one cookie jar, so the attacker
+          page auto-submits the CSRF with the (now fresh) admin connect.sid.
+        - STABLE MONITORING: we always close the attacker tab and switch focus
+          back to the app tab so the monitor keeps reading against our origin.
+        """
+        global driver
         if not driver:
             logging.error("Driver not initialized.")
             return
 
-        with driver_lock:
-            main_handle = driver.current_window_handle
-            new_handle = None
+        main_handle = driver.current_window_handle
+        new_handle = None
+        try:
+            # Open and focus a fresh tab so the page loads in the foreground.
+            driver.switch_to.new_window('tab')
+            new_handle = driver.current_window_handle
+
+            driver.set_page_load_timeout(LINK_VISIT_TIMEOUT)
             try:
-                # Open and focus a fresh tab so the page loads in the foreground.
-                driver.switch_to.new_window('tab')
-                new_handle = driver.current_window_handle
-
-                # Cap the load; the CSRF POST fires well within this for a real
-                # attacker page.
-                driver.set_page_load_timeout(LINK_VISIT_TIMEOUT)
-                try:
-                    driver.get(link_url)
-                    logging.info(f"Visited link (CSRF POST should have fired): {link_url}")
-                except TimeoutException:
-                    logging.warning(
-                        f"Link did not finish loading within {LINK_VISIT_TIMEOUT}s "
-                        f"(likely wrong/unreachable): {link_url}. Moving on."
-                    )
-                except WebDriverException as e:
-                    # ERR_CONNECTION_REFUSED, ERR_NAME_NOT_RESOLVED, etc.
-                    first_line = e.msg.splitlines()[0] if e.msg else str(e)
-                    logging.warning(
-                        f"Navigation error for {link_url}: {first_line}. Moving on."
-                    )
+                driver.get(link_url)
+                logging.info(f"Visited link (CSRF POST should have fired): {link_url}")
+            except TimeoutException:
+                logging.warning(
+                    f"Link did not finish loading within {LINK_VISIT_TIMEOUT}s "
+                    f"(likely wrong/unreachable): {link_url}. Moving on."
+                )
+            except WebDriverException as e:
+                # ERR_CONNECTION_REFUSED, ERR_NAME_NOT_RESOLVED, etc.
+                first_line = e.msg.splitlines()[0] if e.msg else str(e)
+                logging.warning(f"Navigation error for {link_url}: {first_line}. Moving on.")
+        except Exception as e:
+            logging.error(f"Failed to visit link {link_url}: {e}")
+        finally:
+            # Always tear down the attacker tab and return to the app tab.
+            try:
+                if new_handle and new_handle in driver.window_handles:
+                    driver.close()
             except Exception as e:
-                logging.error(f"Failed to visit link {link_url}: {e}")
-            finally:
-                # Always tear down the attacker tab and return to the app tab.
-                try:
-                    if new_handle and new_handle in driver.window_handles:
-                        driver.close()
-                except Exception as e:
-                    logging.error(f"Failed to close attacker tab: {e}")
-                try:
-                    driver.switch_to.window(main_handle)
-                except Exception as e:
-                    logging.error(f"Failed to switch back to main tab: {e}")
-                # Restore a generous timeout for the monitor's own navigations.
-                try:
-                    driver.set_page_load_timeout(300)
-                except Exception:
-                    pass
+                logging.error(f"Failed to close attacker tab: {e}")
+            try:
+                driver.switch_to.window(main_handle)
+            except Exception as e:
+                logging.error(f"Failed to switch back to main tab: {e}")
+            # Restore a generous timeout for the monitor's own navigations.
+            try:
+                driver.set_page_load_timeout(300)
+            except Exception:
+                pass
+    # ▲▲▲ END CHANGED
 
-# Monitoring loop handles all decisions — we never update users.json here.
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -488,76 +633,10 @@ try:
 
     login_url = f"{app_base_url}/login"
 
-    # ------------------------------------------------------------------
-    # Login with retry.
-    #
-    # A successful login MUST rotate connect.sid: express-session issues a
-    # brand-new session id once the credentials are accepted. So we:
-    #   1. Navigate to /login and capture the PRE-login connect.sid.
-    #   2. Submit the form.
-    #   3. Capture the POST-login connect.sid.
-    #   4. If the sid did NOT change, the login did not take effect (e.g. the
-    #      backend was still warming up, or the credentials were rejected) —
-    #      retry the whole flow.
-    #   5. If the sid DID change, validate the new session by calling
-    #      /api/adminMe with that exact cookie. Only HTTP 200 (authenticated
-    #      admin) is accepted; anything else means the rotated sid is not a
-    #      usable admin session, so we retry.
-    #
-    # This replaces the old "is the Admin Dashboard heading visible?" check,
-    # which could pass while the underlying session was still invalid and
-    # sometimes left us monitoring a bogus sid.
-    # ------------------------------------------------------------------
-    MAX_LOGIN_ATTEMPTS = 5
-    baseline_sid = None
-
-    for attempt in range(1, MAX_LOGIN_ATTEMPTS + 1):
-        logging.info(f"Login attempt {attempt}/{MAX_LOGIN_ATTEMPTS}...")
-
-        driver.get(login_url)
-        logging.info(f"Navigated to: {login_url}")
-
-        # Read the cookie BEFORE logging in. We are on the app domain
-        # (/login), so get_sid_from_app() reads the real jar without
-        # navigating away.
-        pre_login_sid = get_sid_from_app(force_reload=True)
-        logging.info(f"Pre-login connect.sid: {str(pre_login_sid)[:16]}...")
-
-        submit_login_form()
-
-        # Give express-session a moment to accept the credentials and
-        # write the rotated cookie back to the browser.
-        logging.info("Waiting 3 s for session cookie to rotate...")
-        time.sleep(3)
-
-        post_login_sid = get_sid_from_app(force_reload=True)
-        logging.info(f"Post-login connect.sid: {str(post_login_sid)[:16]}...")
-
-        if post_login_sid is None:
-            logging.warning("Could not read connect.sid after login attempt; retrying.")
-            continue
-
-        if post_login_sid == pre_login_sid:
-            logging.warning(
-                "connect.sid did NOT change after login — login not effective; retrying."
-            )
-            continue
-
-        # sid rotated -> validate the new session is a real admin session.
-        if not validate_admin_session():
-            logging.warning(
-                "connect.sid rotated but /api/adminMe did not return 200; retrying."
-            )
-            continue
-
-        if not post_login_sid:
-            logging.warning("Rotated connect.sid is empty; retrying.")
-            continue
-
-        baseline_sid = post_login_sid
-        logging.info("Login confirmed: sid rotated and /api/adminMe returned 200.")
-        break
-
+    # ▼▼▼ CHANGED: the ~40-line inline boot-login retry loop is gone — it now
+    #             lives in do_login_flow() and is shared with the on-mail
+    #             re-login path.
+    baseline_sid = do_login_flow(login_url)
     if not baseline_sid:
         logging.error(
             f"Login failed after {MAX_LOGIN_ATTEMPTS} attempts "
@@ -565,6 +644,7 @@ try:
         )
         driver.quit()
         sys.exit(1)
+    # ▲▲▲ END CHANGED
 
     logging.info(f"Baseline connect.sid captured: {baseline_sid}")
     logging.info("Full cookie jar after login:")
@@ -584,25 +664,27 @@ try:
     # ------------------------------------------------------------------
     # Main polling loop
     #
-    # ONLY exits when connect.sid has genuinely changed/disappeared as
-    # read from the app domain. Navigation failures, timeouts, or errors
-    # on third-party pages do NOT trigger termination.
+    # ▼▼▼ CHANGED: exit is now driven by the attack_confirmed EVENT and always
+    #             happens on THIS (main) thread. The watcher thread only flips
+    #             users.json + sets the event; it never calls sys.exit itself
+    #             (that would not stop the process). Navigation failures,
+    #             timeouts, and third-party-page errors still do NOT terminate.
     # ------------------------------------------------------------------
     while True:
-        # The watcher thread may be opening attacker tabs concurrently. Hold
-        # the lock for the cookie read so we never read connect.sid while a
-        # WebDriver command from the watcher is in flight.
+        # The watcher thread may be opening attacker tabs / re-logging-in
+        # concurrently. Hold the lock for the cookie read so we never read
+        # connect.sid while a WebDriver command from the watcher is in flight.
         with driver_lock:
-            session_terminated = check_session_and_update_file()
+            check_session_and_update_file()
 
-        if session_terminated:
+        if attack_confirmed.is_set():
             logging.info(
-                "Session invalidation confirmed and users.json updated. "
-                "Initiating graceful shutdown..."
+                "Attack confirmed and users.json updated. Initiating graceful shutdown..."
             )
-            cleanup_and_exit()  # does not return
+            cleanup_and_exit()  # main thread -> clean sys.exit(0); does not return
 
         time.sleep(1)
+    # ▲▲▲ END CHANGED
 
 except (NoSuchElementException, TimeoutException, UnexpectedAlertPresentException) as e:
     logging.error(f"Element/alert error: {e}")
